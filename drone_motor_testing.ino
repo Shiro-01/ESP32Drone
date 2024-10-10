@@ -79,7 +79,7 @@ esc1.attach(9);  // Attach the first ESC to pin 9
 
 esc2.attach(10); // Attach the second ESC to pin 10
 esc3.attach(8); // Attach the second ESC to pin 10
-esc4``  `.attach(7); // Attach the second ESC to pin 10
+esc4.attach(7); // Attach the second ESC to pin 10
   //esc.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
   // Wait 2 seconds to allow the ESC to recognize the startup condition
   delay(2000); 
@@ -98,7 +98,7 @@ void loop()
   // use the RemoteXY structure for data transfer
   // do not call delay(), use instead RemoteXY_delay() 
 
-   int throttle1 = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 2000);  // ESC1 using Joystick 1 X-axis
+   int throttle1 = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 2000);  // ESC1 using Joystick 1 X-axis // throtle 1 for just going up
   int throttle2 = map(max(0, RemoteXY.joystick_02_x), 0, 100, 1000, 2000);  // ESC2 using Joystick 2 X-axis
   
   // Send throttle signals to ESCs
