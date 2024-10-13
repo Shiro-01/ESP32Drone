@@ -1,4 +1,4 @@
-/*
+/* 
    -- New project --
    
    This source code of graphical user interface 
@@ -74,9 +74,18 @@ Servo esc2;  // Create servo object for ESC2
 Servo esc3;  // Create servo object for ESC2
 Servo esc4;  // Create servo object for ESC2
 
+// Voltage measurement variables
+const int analogPin = A0;  // Pin connected to the voltage divider
+const float R1 = 100000.0; // Resistor 1 value in ohms (100k ohms)
+const float R2 = 20000.0;  // Resistor 2 value in ohms (20k ohms)
+const float referenceVoltage = 5.0; // Assuming Arduino operates at 5V
+const int adcMax = 1023;  // Max ADC value for 10-bit ADC
+const float lowVoltageThreshold = 19.2; // 6 cells at 3.2V per cell
+
 void setup() 
 {
   RemoteXY_Init(); 
+  Serial.begin(115200);  // Initialize serial for debugging
     
   if (!mpu.begin()) {
       while (1) {
@@ -89,29 +98,37 @@ void setup()
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   pinMode(5, OUTPUT); // Set pin 5 as an output
 
-esc1.attach(9);  // Attach the first ESC to pin 9
-
-esc2.attach(10); // Attach the second ESC to pin 10
-esc3.attach(8); // Attach the second ESC to pin 10
-esc4.attach(7); // Attach the second ESC to pin 10
-  //esc.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
+  // Initialize ESCs
+  esc1.attach(9);  // Attach the first ESC to pin 9
+  esc2.attach(10); // Attach the second ESC to pin 10
+  esc3.attach(8);  // Attach the third ESC to pin 8
+  esc4.attach(7);  // Attach the fourth ESC to pin 7
+  
   // Wait 2 seconds to allow the ESC to recognize the startup condition
   delay(2000); 
 
-  // TODO you setup code
-  
+  //esc1.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
+  //esc2.writeMicroseconds(1000);  // Uncomment if needed for calibration
 }
 
 void loop() 
 { 
-  RemoteXY_Handler ();
+  RemoteXY_Handler();
   
-  digitalWrite(5, RemoteXY.switch_01);  // Turn the LED off
+  // Read the battery voltage
+  int sensorValue = analogRead(analogPin);
+  float voltageOut = (sensorValue * referenceVoltage) / adcMax;
+  float batteryVoltage = voltageOut * (R1 + R2) / R2;
 
-  // TODO you loop code
-  // use the RemoteXY structure for data transfer
-  // do not call delay(), use instead RemoteXY_delay()
+  // Check if the battery voltage is below the safe threshold
+  if (batteryVoltage < lowVoltageThreshold) {
+    Serial.println("Warning: Battery voltage too low! Please charge the battery.");
+  } else {
+    Serial.print("Battery Voltage: ");
+    Serial.println(batteryVoltage);
+  }
 
+  // MPU sensor data reading
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
