@@ -1,4 +1,4 @@
-/*
+/* 
    -- New project --
    
    This source code of graphical user interface 
@@ -27,6 +27,8 @@
 #include <Servo.h>
 #include <RemoteXY.h>
 #include <BasicLinearAlgebra.h>
+#include <RemoteXY.h>
+
 using namespace BLA;
 
 // RemoteXY configuration
@@ -37,9 +39,9 @@ using namespace BLA;
 #define REMOTEXY_WIFI_PASSWORD "12345678"
 #define REMOTEXY_SERVER_PORT 6377
 
-// RemoteXY configurator 
-#pragma pack(push, 1)
-uint8_t RemoteXY_CONF[] =
+// RemoteXY GUI configuration  
+#pragma pack(push, 1)  
+uint8_t RemoteXY_CONF[] =   // 54 bytes
   { 255,5,0,0,0,47,0,18,0,0,0,31,1,106,200,1,1,3,0,5,
     12,18,49,49,32,2,26,31,5,15,121,49,49,32,2,26,31,2,56,79,
     44,22,1,2,26,31,31,79,78,0,79,70,70,0 };
@@ -68,33 +70,43 @@ Matrix<2, 1> z; // Measurement vector
 
 const float dt = 0.01; // Time step in seconds (100Hz update rate)
 
+// Voltage measurement variables
+const int analogPin = A0;  // Pin connected to the voltage divider
+const float R1 = 100000.0; // Resistor 1 value in ohms (100k ohms)
+const float R2 = 20000.0;  // Resistor 2 value in ohms (20k ohms)
+const float referenceVoltage = 5.0; // Assuming Arduino operates at 5V
+const int adcMax = 1023;  // Max ADC value for 10-bit ADC
+const float lowVoltageThreshold = 19.2; // 6 cells at 3.2V per cell
+
 void setup() 
 {
-    RemoteXY_Init(); 
+  RemoteXY_Init(); 
+  Serial.begin(115200);  // Initialize serial for debugging
     
-    if (!mpu.begin()) {
-        while (1) {
-            delay(10);
-        }
-    }
+  if (!mpu.begin()) {
+      while (1) {
+          delay(10);
+      }
+  }
 
-    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  pinMode(5, OUTPUT); // Set pin 5 as an output
 
-    pinMode(5, OUTPUT);
+  // Initialize ESCs
+  esc1.attach(9);  // Attach the first ESC to pin 9
+  esc2.attach(6); // Attach the second ESC to pin 6 bottom right mottor
+  esc3.attach(8);  // Attach the third ESC to pin 8
+  esc4.attach(7);  // Attach the fourth ESC to pin 7
+  
+  // Wait 2 seconds to allow the ESC to recognize the startup condition
+  delay(2000); 
 
-    esc1.attach(9);
-    esc2.attach(10);
-    esc3.attach(8);
-    esc4.attach(7);
-
-    // Initialize ESCs
-    esc1.writeMicroseconds(1000);
-    esc2.writeMicroseconds(1000);
-    esc3.writeMicroseconds(1000);
-    esc4.writeMicroseconds(1000);
-
+  //esc1.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
+  //esc2.writeMicroseconds(1000);  // Uncomment if needed for calibration
+  
+  
     // Initialize Kalman filter matrices
     F = {1, -dt, 0, 1};
     H = {1, 0, 0, 1};
@@ -102,8 +114,6 @@ void setup()
     R = {0.03, 0, 0, 0.03};
     P = {1, 0, 0, 1};
     x = {0, 0}; // Initial state (pitch and pitch rate)
-
-    delay(2000);
 }
 
 void kalmanUpdate(float angle, float rate) {
@@ -126,7 +136,20 @@ void loop()
     RemoteXY_Handler();
     
     digitalWrite(5, RemoteXY.switch_01);
+      
+    // Read the battery voltage
+    int sensorValue = analogRead(analogPin);
+    float voltageOut = (sensorValue * referenceVoltage) / adcMax;
+    float batteryVoltage = voltageOut * (R1 + R2) / R2;
 
+    // Check if the battery voltage is below the safe threshold
+    if (batteryVoltage < lowVoltageThreshold) {
+      Serial.println("Warning: Battery voltage too low! Please charge the battery.");
+    } else {
+      Serial.print("Battery Voltage: ");
+      Serial.println(batteryVoltage);
+    }
+  
     static unsigned long previousTime = 0;
     unsigned long currentTime = millis();
 
@@ -151,7 +174,7 @@ void loop()
         yaw += g.gyro.z * dt;
 
         // Calculate base throttle from joystick input
-        int baseThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 2000);
+        int baseThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1050, 1500);
 
         // Adjust throttle based on pitch and roll
         int throttle1 = baseThrottle + pitch + roll;
@@ -160,10 +183,10 @@ void loop()
         int throttle4 = baseThrottle - pitch - roll;
 
         // Constrain throttle values
-        throttle1 = constrain(throttle1, 1000, 2000);
-        throttle2 = constrain(throttle2, 1000, 2000);
-        throttle3 = constrain(throttle3, 1000, 2000);
-        throttle4 = constrain(throttle4, 1000, 2000);
+        throttle1 = constrain(throttle1, 1000, 1600);
+        throttle2 = constrain(throttle2, 1000, 1600);
+        throttle3 = constrain(throttle3, 1000, 1600);
+        throttle4 = constrain(throttle4, 1000, 1600);
 
         // Send throttle signals to ESCs
         esc1.writeMicroseconds(throttle1);
