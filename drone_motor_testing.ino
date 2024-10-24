@@ -19,17 +19,11 @@
 //        RemoteXY include library          //
 //////////////////////////////////////////////
 
-// you can enable debug logging to Serial at 115200
-//#define REMOTEXY__DEBUGLOG    
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Servo.h>
-#include <RemoteXY.h>
-#include <BasicLinearAlgebra.h>
-#include <RemoteXY.h>
-
-using namespace BLA;
+#include <Kalman.h> // 
 
 // RemoteXY configuration
 #define REMOTEXY_MODE__ESP8266_HARDSERIAL_POINT
@@ -38,6 +32,20 @@ using namespace BLA;
 #define REMOTEXY_WIFI_SSID "shiro"
 #define REMOTEXY_WIFI_PASSWORD "12345678"
 #define REMOTEXY_SERVER_PORT 6377
+#include <RemoteXY.h>  // RemoteXY include
+
+
+float RatePitch, RateRoll, RateYaw;
+float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
+float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
+float InputRoll, InputThrottle, InputPitch, InputYaw;
+float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
+float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
+float PIDReturn[]={0, 0, 0};
+float PRateRoll=0.6 ; float PRatePitch=PRateRoll; float PRateYaw=2;
+float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=12;
+float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
+float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 // RemoteXY GUI configuration  
 #pragma pack(push, 1)  
@@ -77,6 +85,36 @@ const float R2 = 20000.0;  // Resistor 2 value in ohms (20k ohms)
 const float referenceVoltage = 5.0; // Assuming Arduino operates at 5V
 const int adcMax = 1023;  // Max ADC value for 10-bit ADC
 const float lowVoltageThreshold = 19.2; // 6 cells at 3.2V per cell
+
+
+
+
+
+void reset_pid(void) {
+  PrevErrorRateRoll=0; PrevErrorRatePitch=0; PrevErrorRateYaw=0;
+  PrevItermRateRoll=0; PrevItermRatePitch=0; PrevItermRateYaw=0;
+}
+
+void pid_equation(float Error, float P , float I, float D, float PrevError, float PrevIterm) {
+  float Pterm=P*Error;
+  float Iterm=PrevIterm+I*(Error+PrevError)*0.004/2;
+  if (Iterm > 400) Iterm=400;
+  else if (Iterm <-400) Iterm=-400;
+  float Dterm=D*(Error-PrevError)/0.004;
+  float PIDOutput= Pterm+Iterm+Dterm;
+  if (PIDOutput>400) PIDOutput=400;
+  else if (PIDOutput <-400) PIDOutput=-400;
+  PIDReturn[0]=PIDOutput;
+  PIDReturn[1]=Error;
+  PIDReturn[2]=Iterm;
+}
+
+void batteryVoltageDetection(){
+  // Read the battery voltage
+  int sensorValue = analogRead(analogPin);
+  float voltageOut = (sensorValue * referenceVoltage) / adcMax;
+  float batteryVoltage = voltageOut * (R1 + R2) / R2;
+}
 
 void setup() 
 {
@@ -174,29 +212,39 @@ void loop()
         yaw += g.gyro.z * dt;
 
         // Calculate base throttle from joystick input
-        int baseThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1050, 1500);
+              RateRoll-=RateCalibrationRoll;
+      RatePitch-=RateCalibrationPitch;
+      RateYaw-=RateCalibrationYaw;
 
-        // Adjust throttle based on pitch and roll
-        int throttle1 = baseThrottle + pitch + roll;
-        int throttle2 = baseThrottle - pitch + roll;
-        int throttle3 = baseThrottle + pitch - roll;
-        int throttle4 = baseThrottle - pitch - roll;
+      InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1700);
+      
+      DesiredRateYaw=0.15*(RemoteXY.RemoteXYjoystick_01_y-1500);   // change rate is 15 degrees per sec
+      DesiredRateRoll= 0.15 * (RemoteXY.RemoteXYjoystick_02_y-1500);
+      DesiredRatePitch=0.15*(RemoteXY.RemoteXYjoystick_02_x - 1500);
 
-        // Constrain throttle values
-        throttle1 = constrain(throttle1, 1000, 1600);
-        throttle2 = constrain(throttle2, 1000, 1600);
-        throttle3 = constrain(throttle3, 1000, 1600);
-        throttle4 = constrain(throttle4, 1000, 1600);
+      // Error rates
+      ErrorRateRoll=DesiredRateRoll-RateRoll;
+      ErrorRatePitch=DesiredRatePitch-RatePitch;
+      ErrorRateYaw=DesiredRateYaw-RateYaw;
 
-        // Send throttle signals to ESCs
-        esc1.writeMicroseconds(throttle1);
-        esc2.writeMicroseconds(throttle2);
-        esc3.writeMicroseconds(throttle3);
-        esc4.writeMicroseconds(throttle4);
+      pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+       InputRoll=PIDReturn[0];
+       PrevErrorRateRoll=PIDReturn[1]; 
+       PrevItermRateRoll=PIDReturn[2];
 
-        // Optional: Print debug information
-        // Serial.print("Pitch: "); Serial.print(pitch);
-        // Serial.print(", Roll: "); Serial.print(roll);
-        // Serial.print(", Yaw: "); Serial.println(yaw);
-    }
+  pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+       InputPitch=PIDReturn[0]; 
+       PrevErrorRatePitch=PIDReturn[1]; 
+       PrevItermRatePitch=PIDReturn[2];
+  pid_equation(ErrorRateYaw, PRateYaw,
+       IRateYaw, DRateYaw, PrevErrorRateYaw,
+       PrevItermRateYaw);
+       InputYaw=PIDReturn[0]; 
+       PrevErrorRateYaw=PIDReturn[1]; 
+       PrevItermRateYaw=PIDReturn[2];
+  if (InputThrottle > 1800) InputThrottle = 1800;
+  MotorInput1= 1.024*(InputThrottle-InputRoll-InputPitch-InputYaw);
+  MotorInput2= 1.024*(InputThrottle-InputRoll+InputPitch+InputYaw);
+  MotorInput3= 1.024*(InputThrottle+InputRoll+InputPitch-InputYaw);
+  MotorInput4= 1.024*(InputThrottle+InputRoll-InputPitch+InputYaw);
 }
