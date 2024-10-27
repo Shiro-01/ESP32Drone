@@ -1,39 +1,18 @@
-/* 
-   -- New project --
-   
-   This source code of graphical user interface 
-   has been generated automatically by RemoteXY editor.
-   To compile this code using RemoteXY library 3.1.13 or later version 
-   download by link http://remotexy.com/en/library/
-   To connect using RemoteXY mobile app by link http://remotexy.com/en/download/                   
-     - for ANDROID 4.14.08 or later version;
-     - for iOS 1.11.2 or later version;
-    
-   This source code is free software; you can redistribute it and/or
-   modify it under the terms of the GNU Lesser General Public
-   License as published by the Free Software Foundation; either
-   version 2.1 of the License, or (at your option) any later version.    
-*/
-
-//////////////////////////////////////////////
-//        RemoteXY include library          //
-//////////////////////////////////////////////
-
-#include <Wire.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
-#include <Servo.h>
-#include <Kalman.h> // 
-
-// RemoteXY configuration
 #define REMOTEXY_MODE__ESP8266_HARDSERIAL_POINT
 #define REMOTEXY_SERIAL Serial
 #define REMOTEXY_SERIAL_SPEED 115200
 #define REMOTEXY_WIFI_SSID "shiro"
 #define REMOTEXY_WIFI_PASSWORD "12345678"
 #define REMOTEXY_SERVER_PORT 6377
-#include <RemoteXY.h>  // RemoteXY include
 
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Servo.h>
+#include <BasicLinearAlgebra.h>
+#include <RemoteXY.h>
+
+using namespace BLA;
 
 float RatePitch, RateRoll, RateYaw;
 float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
@@ -46,6 +25,10 @@ float PRateRoll=0.6 ; float PRatePitch=PRateRoll; float PRateYaw=2;
 float IRateRoll=3.5 ; float IRatePitch=IRateRoll; float IRateYaw=12;
 float DRateRoll=0.03 ; float DRatePitch=DRateRoll; float DRateYaw=0;
 float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
+
+// Calibration variables
+const int CALIBRATION_READINGS = 20;
+float RateCalibrationRoll = 0, RateCalibrationPitch = 0, RateCalibrationYaw = 0;
 
 // RemoteXY GUI configuration  
 #pragma pack(push, 1)  
@@ -86,10 +69,6 @@ const float referenceVoltage = 5.0; // Assuming Arduino operates at 5V
 const int adcMax = 1023;  // Max ADC value for 10-bit ADC
 const float lowVoltageThreshold = 19.2; // 6 cells at 3.2V per cell
 
-
-
-
-
 void reset_pid(void) {
   PrevErrorRateRoll=0; PrevErrorRatePitch=0; PrevErrorRateYaw=0;
   PrevItermRateRoll=0; PrevItermRatePitch=0; PrevItermRateYaw=0;
@@ -110,10 +89,40 @@ void pid_equation(float Error, float P , float I, float D, float PrevError, floa
 }
 
 void batteryVoltageDetection(){
-  // Read the battery voltage
   int sensorValue = analogRead(analogPin);
   float voltageOut = (sensorValue * referenceVoltage) / adcMax;
   float batteryVoltage = voltageOut * (R1 + R2) / R2;
+  if (batteryVoltage < lowVoltageThreshold) {
+    Serial.println("Warning: Battery voltage too low! Please charge the battery.");
+  } else {
+    Serial.print("Battery Voltage: ");
+    Serial.println(batteryVoltage);
+  }
+}
+
+void calibrateSensors() {
+    Serial.println("Calibrating sensors. Keep the drone still...");
+    float sumRoll = 0, sumPitch = 0, sumYaw = 0;
+
+    for (int i = 0; i < CALIBRATION_READINGS; i++) {
+        sensors_event_t a, g, temp;
+        mpu.getEvent(&a, &g, &temp);
+
+        sumRoll += g.gyro.x;
+        sumPitch += g.gyro.y;
+        sumYaw += g.gyro.z;
+
+        delay(50); // Short delay between readings
+    }
+
+    RateCalibrationRoll = sumRoll / CALIBRATION_READINGS;
+    RateCalibrationPitch = sumPitch / CALIBRATION_READINGS;
+    RateCalibrationYaw = sumYaw / CALIBRATION_READINGS;
+
+    Serial.println("Calibration complete.");
+    Serial.print("Roll Offset: "); Serial.println(RateCalibrationRoll);
+    Serial.print("Pitch Offset: "); Serial.println(RateCalibrationPitch);
+    Serial.print("Yaw Offset: "); Serial.println(RateCalibrationYaw);
 }
 
 void setup() 
@@ -141,17 +150,16 @@ void setup()
   // Wait 2 seconds to allow the ESC to recognize the startup condition
   delay(2000); 
 
-  //esc1.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
-  //esc2.writeMicroseconds(1000);  // Uncomment if needed for calibration
+  // Perform automatic calibration
+  calibrateSensors();
   
-  
-    // Initialize Kalman filter matrices
-    F = {1, -dt, 0, 1};
-    H = {1, 0, 0, 1};
-    Q = {0.001, 0, 0, 0.003};
-    R = {0.03, 0, 0, 0.03};
-    P = {1, 0, 0, 1};
-    x = {0, 0}; // Initial state (pitch and pitch rate)
+  // Initialize Kalman filter matrices
+  F = {1, -dt, 0, 1};
+  H = {1, 0, 0, 1};
+  Q = {0.001, 0, 0, 0.003};
+  R = {0.03, 0, 0, 0.03};
+  P = {1, 0, 0, 1};
+  x = {0, 0}; // Initial state (pitch and pitch rate)
 }
 
 void kalmanUpdate(float angle, float rate) {
@@ -164,9 +172,20 @@ void kalmanUpdate(float angle, float rate) {
 
     // Update
     Matrix<2, 2> S = H * P * ~H + R;
-    Matrix<2, 2> K = P * ~H * S.Inverse();
-    x = x + K * (z - H * x);
-    P = (Matrix<2,2>::Identity() - K * H) * P;
+    Matrix<2, 2> K;
+    Matrix<2, 2> I = {1, 0, 0, 1}; // Identity matrix
+    
+    // Check if S is invertible
+    float det = S(0,0) * S(1,1) - S(0,1) * S(1,0);
+    if(abs(det) > 1e-6) {
+        Invert(S, K);
+        K = P * ~H * K;
+        x = x + K * (z - H * x);
+        P = (I - K * H) * P;
+    } else {
+        // S is not invertible, skip the update step
+        Serial.println("Warning: Kalman filter update skipped due to singular matrix");
+    }
 }
 
 void loop() 
@@ -175,18 +194,7 @@ void loop()
     
     digitalWrite(5, RemoteXY.switch_01);
       
-    // Read the battery voltage
-    int sensorValue = analogRead(analogPin);
-    float voltageOut = (sensorValue * referenceVoltage) / adcMax;
-    float batteryVoltage = voltageOut * (R1 + R2) / R2;
-
-    // Check if the battery voltage is below the safe threshold
-    if (batteryVoltage < lowVoltageThreshold) {
-      Serial.println("Warning: Battery voltage too low! Please charge the battery.");
-    } else {
-      Serial.print("Battery Voltage: ");
-      Serial.println(batteryVoltage);
-    }
+    batteryVoltageDetection();
   
     static unsigned long previousTime = 0;
     unsigned long currentTime = millis();
@@ -197,54 +205,62 @@ void loop()
         sensors_event_t a, g, temp;
         mpu.getEvent(&a, &g, &temp);
 
+        // Apply calibration offsets
+        RateRoll = g.gyro.x - RateCalibrationRoll;
+        RatePitch = g.gyro.y - RateCalibrationPitch;
+        RateYaw = g.gyro.z - RateCalibrationYaw;
+
         // Calculate angles from accelerometer data
         float accAngleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
         float accAngleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI;
 
         // Apply Kalman filter
-        kalmanUpdate(accAngleX, g.gyro.x);
+        kalmanUpdate(accAngleX, RateRoll);
         float pitch = x(0);
-        kalmanUpdate(accAngleY, g.gyro.y);
+        kalmanUpdate(accAngleY, RatePitch);
         float roll = x(0);
 
-        // Yaw calculation (simple integration, as before)
+        // Yaw calculation (simple integration)
         static float yaw = 0;
-        yaw += g.gyro.z * dt;
+        yaw += RateYaw * dt;
 
         // Calculate base throttle from joystick input
-              RateRoll-=RateCalibrationRoll;
-      RatePitch-=RateCalibrationPitch;
-      RateYaw-=RateCalibrationYaw;
-
-      InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1700);
+        InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1700);
       
-      DesiredRateYaw=0.15*(RemoteXY.RemoteXYjoystick_01_y-1500);   // change rate is 15 degrees per sec
-      DesiredRateRoll= 0.15 * (RemoteXY.RemoteXYjoystick_02_y-1500);
-      DesiredRatePitch=0.15*(RemoteXY.RemoteXYjoystick_02_x - 1500);
+        DesiredRateYaw = 0.15 * (RemoteXY.joystick_01_y - 50);   // change rate is 15 degrees per sec
+        DesiredRateRoll = 0.15 * (RemoteXY.joystick_02_y - 50);
+        DesiredRatePitch = 0.15 * (RemoteXY.joystick_02_x - 50);
 
-      // Error rates
-      ErrorRateRoll=DesiredRateRoll-RateRoll;
-      ErrorRatePitch=DesiredRatePitch-RatePitch;
-      ErrorRateYaw=DesiredRateYaw-RateYaw;
+        // Error rates
+        ErrorRateRoll = DesiredRateRoll - RateRoll;
+        ErrorRatePitch = DesiredRatePitch - RatePitch;
+        ErrorRateYaw = DesiredRateYaw - RateYaw;
 
-      pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
-       InputRoll=PIDReturn[0];
-       PrevErrorRateRoll=PIDReturn[1]; 
-       PrevItermRateRoll=PIDReturn[2];
+        pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+        InputRoll = PIDReturn[0];
+        PrevErrorRateRoll = PIDReturn[1]; 
+        PrevItermRateRoll = PIDReturn[2];
 
-  pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
-       InputPitch=PIDReturn[0]; 
-       PrevErrorRatePitch=PIDReturn[1]; 
-       PrevItermRatePitch=PIDReturn[2];
-  pid_equation(ErrorRateYaw, PRateYaw,
-       IRateYaw, DRateYaw, PrevErrorRateYaw,
-       PrevItermRateYaw);
-       InputYaw=PIDReturn[0]; 
-       PrevErrorRateYaw=PIDReturn[1]; 
-       PrevItermRateYaw=PIDReturn[2];
-  if (InputThrottle > 1800) InputThrottle = 1800;
-  MotorInput1= 1.024*(InputThrottle-InputRoll-InputPitch-InputYaw);
-  MotorInput2= 1.024*(InputThrottle-InputRoll+InputPitch+InputYaw);
-  MotorInput3= 1.024*(InputThrottle+InputRoll+InputPitch-InputYaw);
-  MotorInput4= 1.024*(InputThrottle+InputRoll-InputPitch+InputYaw);
+        pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+        InputPitch = PIDReturn[0]; 
+        PrevErrorRatePitch = PIDReturn[1]; 
+        PrevItermRatePitch = PIDReturn[2];
+
+        pid_equation(ErrorRateYaw, PRateYaw, IRateYaw, DRateYaw, PrevErrorRateYaw, PrevItermRateYaw);
+        InputYaw = PIDReturn[0]; 
+        PrevErrorRateYaw = PIDReturn[1]; 
+        PrevItermRateYaw = PIDReturn[2];
+
+        if (InputThrottle > 1800) InputThrottle = 1800;
+        MotorInput1 = 1.024 * (InputThrottle - InputRoll - InputPitch - InputYaw);
+        MotorInput2 = 1.024 * (InputThrottle - InputRoll + InputPitch + InputYaw);
+        MotorInput3 = 1.024 * (InputThrottle + InputRoll + InputPitch - InputYaw);
+        MotorInput4 = 1.024 * (InputThrottle + InputRoll - InputPitch + InputYaw);
+
+        // Apply motor inputs
+        esc1.writeMicroseconds(MotorInput1);
+        esc2.writeMicroseconds(MotorInput2);
+        esc3.writeMicroseconds(MotorInput3);
+        esc4.writeMicroseconds(MotorInput4);
+    }
 }
