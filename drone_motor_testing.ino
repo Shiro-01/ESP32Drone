@@ -140,10 +140,10 @@ void setup()
   
   // Wait 2 seconds to allow the ESC to recognize the startup condition
   delay(2000); 
-
+   
   //esc1.writeMicroseconds(1000);  // Send the minimum throttle signal to the ESC
   //esc2.writeMicroseconds(1000);  // Uncomment if needed for calibration
-  
+  //testing
   
     // Initialize Kalman filter matrices
     F = {1, -dt, 0, 1};
