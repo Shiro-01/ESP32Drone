@@ -167,9 +167,6 @@ void loop()
   pitch = alpha * (pitch + gyroRateX * dt) + (1 - alpha) * accAngleX;
   roll = alpha * (roll + gyroRateY * dt) + (1 - alpha) * accAngleY;
   
-  // For yaw, we will use gyroRateZ directly
-  // No need to integrate to get yaw angle since we are controlling yaw rate
-  
   // Read joystick inputs from RemoteXY
   InputThrottle = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000); // Adjust as needed
   InputRoll = map(RemoteXY.joystick_01_x, -100, 100, -30, 30);        // Desired roll angle
@@ -179,8 +176,6 @@ void loop()
   // Compute errors
   ErrorRateRoll = InputRoll - roll;
   ErrorRatePitch = InputPitch - pitch;
-  
-  // For yaw, we control the yaw rate
   ErrorRateYaw = InputYaw - gyroRateZ; // Compare desired yaw rate with actual gyro rate
   
   // Compute PID outputs
