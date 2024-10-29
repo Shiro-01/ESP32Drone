@@ -109,11 +109,21 @@ void pid_equation(float Error, float P , float I, float D, float PrevError, floa
   PIDReturn[2]=Iterm;
 }
 
-void batteryVoltageDetection(){
+void batteryVoltageDetection() {
   // Read the battery voltage
   int sensorValue = analogRead(analogPin);
   float voltageOut = (sensorValue * referenceVoltage) / adcMax;
   float batteryVoltage = voltageOut * (R1 + R2) / R2;
+
+  // Send battery voltage to RemoteXY (ensure the RemoteXY interface supports this)
+  RemoteXY.battery_voltage = batteryVoltage;
+
+  // Check if the battery voltage is below the safe threshold
+  if (batteryVoltage < lowVoltageThreshold) {
+    digitalWrite(5, LOW); // Optional: take an action if voltage is low
+  } else {
+    digitalWrite(5, HIGH); // Optional: normal operation
+  }
 }
 
 void setup() 
