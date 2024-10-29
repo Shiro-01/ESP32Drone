@@ -215,7 +215,7 @@ void loop()
   // For debugging
   Serial.print("Pitch: "); Serial.print(pitch);
   Serial.print(", Roll: "); Serial.print(roll);
-  Serial.print(", GyroYawRate: "); Serial.print(gyroRateZ);
+  Serial.print(", Gyro: "); Serial.print(gyroRateZ);
   Serial.print(", Motor1: "); Serial.print(MotorInput1);
   Serial.print(", Motor2: "); Serial.print(MotorInput2);
   Serial.print(", Motor3: "); Serial.print(MotorInput3);
