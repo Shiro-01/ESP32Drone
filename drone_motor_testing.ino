@@ -146,6 +146,7 @@ void setup()
   
   // Wait 2 seconds to allow the ESCs to recognize the startup condition
   delay(2000); 
+
   
   // Initialize PID variables
   reset_pid();
