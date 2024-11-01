@@ -85,10 +85,28 @@ float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 float accXOffset = 0, accYOffset = 0, accZOffset = 0;
 float gyroXOffset = 0, gyroYOffset = 0, gyroZOffset = 0;
 
+
 // Function prototypes
 void reset_pid(void);
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm);
 void calibrateMPU6050();
+
+void batteryVoltageDetection() {
+  // Read the battery voltage
+  int sensorValue = analogRead(analogPin);
+  float voltageOut = (sensorValue * referenceVoltage) / adcMax;
+  float batteryVoltage = voltageOut * (R1 + R2) / R2;
+
+  // Send battery voltage to RemoteXY (ensure the RemoteXY interface supports this)
+ // RemoteXY.battery_voltage = batteryVoltage;
+
+  // Check if the battery voltage is below the safe threshold
+  if (batteryVoltage < lowVoltageThreshold) {
+    digitalWrite(5, LOW); // Optional: take an action if voltage is low
+  } else {
+    digitalWrite(5, HIGH); // Optional: normal operation
+  }
+}
 
 void setup() 
 {
