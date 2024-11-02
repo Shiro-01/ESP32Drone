@@ -176,7 +176,7 @@ void loop()
   // Read joystick inputs from RemoteXY
   InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1800);
   float SignalYaw = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000);
-  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, ؤش, 2000);
+  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000, 2000);
   float SignalPitch = map(RemoteXY.joystick_02_x, -100, 100, 1000, 2000);
   
   DesiredRateYaw = 0.15 * (SignalYaw - 1500);   
