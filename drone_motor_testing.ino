@@ -85,28 +85,22 @@ float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 float accXOffset = 0, accYOffset = 0, accZOffset = 0;
 float gyroXOffset = 0, gyroYOffset = 0, gyroZOffset = 0;
 
+// Voltage measurement variables
+const int analogPin = A0;  // Pin connected to the voltage divider
+const float R1 = 100000.0; // Resistor 1 value in ohms (100k ohms)
+const float R2 = 20000.0;  // Resistor 2 value in ohms (20k ohms)
+const float referenceVoltage = 5.0; // Assuming Arduino operates at 5V
+const int adcMax = 1023;  // Max ADC value for 10-bit ADC
+const float lowVoltageThreshold = 19.2; // 6 cells at 3.2V per cell
+float dt = 0.01;  // Time step (100Hz update rate)
+unsigned long previousTime;
 
 // Function prototypes
 void reset_pid(void);
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm);
 void calibrateMPU6050();
+void batteryVoltageDetection();
 
-void batteryVoltageDetection() {
-  // Read the battery voltage
-  int sensorValue = analogRead(analogPin);
-  float voltageOut = (sensorValue * referenceVoltage) / adcMax;
-  float batteryVoltage = voltageOut * (R1 + R2) / R2;
-
-  // Send battery voltage to RemoteXY (ensure the RemoteXY interface supports this)
- // RemoteXY.battery_voltage = batteryVoltage;
-
-  // Check if the battery voltage is below the safe threshold
-  if (batteryVoltage < lowVoltageThreshold) {
-    digitalWrite(5, LOW); // Optional: take an action if voltage is low
-  } else {
-    digitalWrite(5, HIGH); // Optional: normal operation
-  }
-}
 
 void setup() 
 {
@@ -132,22 +126,14 @@ void setup()
   // Calibrate MPU6050
   calibrateMPU6050();
   
+  pinMode(5, OUTPUT); // Set pin 5 as an output FOR LED
+
   // Initialize ESCs
   esc1.attach(9);  // Motor 1
   esc2.attach(6);  // Motor 2
   esc3.attach(8);  // Motor 3
   esc4.attach(7);  // Motor 4
-  
-  // Initialize ESCs with minimum throttle
-  esc1.writeMicroseconds(1000);
-  esc2.writeMicroseconds(1000);
-  esc3.writeMicroseconds(1000);
-  esc4.writeMicroseconds(1000);
-  
-  // Wait 2 seconds to allow the ESCs to recognize the startup condition
-  delay(2000); 
 
-  
   // Initialize PID variables
   reset_pid();
 }
@@ -301,4 +287,21 @@ void calibrateMPU6050() {
   gyroZOffset = gyroZSum / calibrationSamples;
   
   Serial.println("Calibration complete.");
+}
+
+void batteryVoltageDetection() {
+  // Read the battery voltage
+  int sensorValue = analogRead(analogPin);
+  float voltageOut = (sensorValue * referenceVoltage) / adcMax;
+  float batteryVoltage = voltageOut * (R1 + R2) / R2;
+
+  // Send battery voltage to RemoteXY (ensure the RemoteXY interface supports this)
+ // RemoteXY.battery_voltage = batteryVoltage;
+
+  // Check if the battery voltage is below the safe threshold
+  if (batteryVoltage < lowVoltageThreshold) {
+    digitalWrite(5, LOW); // Optional: take an action if voltage is low
+  } else {
+    digitalWrite(5, HIGH); // Optional: normal operation
+  }
 }
