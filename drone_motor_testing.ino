@@ -28,7 +28,7 @@
 #define REMOTEXY_MODE__ESP8266_HARDSERIAL_POINT
 #define REMOTEXY_SERIAL Serial
 #define REMOTEXY_SERIAL_SPEED 115200
-#define REMOTEXY_WIFI_SSID "shiro"
+#define REMOTEXY_WIFI_SSID "FLy ME TO THE MOON"
 #define REMOTEXY_WIFI_PASSWORD "12345678"
 #define REMOTEXY_SERVER_PORT 6377
 
@@ -69,6 +69,7 @@ float RatePitch, RateRoll, RateYaw;
 float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
 float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
 float InputRoll, InputThrottle, InputPitch, InputYaw;
+
 float PrevErrorRateRoll = 0, PrevErrorRatePitch = 0, PrevErrorRateYaw = 0;
 float PrevItermRateRoll = 0, PrevItermRatePitch = 0, PrevItermRateYaw = 0;
 float PIDReturn[] = {0, 0, 0};
@@ -117,7 +118,7 @@ void setup()
       delay(10);
     }
   }
-  Serial.println("MPU6050 Found!");
+  //Serial.println("MPU6050 Found!");
   
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
@@ -173,9 +174,9 @@ void loop()
   roll = alpha * (roll + gyroRateY * dt) + (1 - alpha) * accAngleY;
   
   // Read joystick inputs from RemoteXY
-  InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 2000);
+  InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1800);
   float SignalYaw = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000);
-  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000, 2000);
+  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, ؤش, 2000);
   float SignalPitch = map(RemoteXY.joystick_02_x, -100, 100, 1000, 2000);
   
   DesiredRateYaw = 0.15 * (SignalYaw - 1500);   
@@ -231,13 +232,13 @@ void loop()
   esc4.writeMicroseconds(MotorInput4);
   
   // For debugging
-  Serial.print("Pitch: "); Serial.print(pitch);
-  Serial.print(", Roll: "); Serial.print(roll);
-  Serial.print(", Gyro: "); Serial.print(gyroRateZ);
-  Serial.print(", Motor1: "); Serial.print(MotorInput1);
-  Serial.print(", Motor2: "); Serial.print(MotorInput2);
-  Serial.print(", Motor3: "); Serial.print(MotorInput3);
-  Serial.print(", Motor4: "); Serial.println(MotorInput4);
+ // Serial.print("Pitch: "); Serial.print(pitch);
+  //Serial.print(", Roll: "); Serial.print(roll);
+  //Serial.print(", Gyro: "); Serial.print(gyroRateZ);
+  //Serial.print(", Motor1: "); Serial.print(MotorInput1);
+  //Serial.print(", Motor2: "); Serial.print(MotorInput2);
+  //Serial.print(", Motor3: "); Serial.print(MotorInput3);
+  //Serial.print(", Motor4: "); Serial.println(MotorInput4);
   
   // Delay for loop timing
   delay(10); // 10ms delay for 100Hz update rate
