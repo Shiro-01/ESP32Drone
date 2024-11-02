@@ -173,26 +173,44 @@ void loop()
   roll = alpha * (roll + gyroRateY * dt) + (1 - alpha) * accAngleY;
   
   // Read joystick inputs from RemoteXY
-  InputThrottle = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000); // Adjust as needed
-  InputRoll = map(RemoteXY.joystick_01_x, -100, 100, -30, 30);        // Desired roll angle
-  InputPitch = map(RemoteXY.joystick_02_y, -100, 100, -30, 30);       // Desired pitch angle
-  InputYaw = map(RemoteXY.joystick_02_x, -100, 100, -90, 90);         // Desired yaw rate (degrees per second)
+  InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 2000);
+  float SignalYaw = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000);
+  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000, 2000);
+  float SignalPitch = map(RemoteXY.joystick_02_x, -100, 100, 1000, 2000);
   
-  // Compute errors
-  ErrorRateRoll = InputRoll - roll;
-  ErrorRatePitch = InputPitch - pitch;
-  ErrorRateYaw = InputYaw - gyroRateZ; // Compare desired yaw rate with actual gyro rate
+  DesiredRateYaw = 0.15 * (SignalYaw - 1500);   
+  DesiredRateRoll = 0.15 * (SignalRoll - 1500);
+  DesiredRatePitch = 0.15 * (SignalPitch - 1500);
+ // DesiredVelocityVertical=0.3*(InputThrottle - 1500);
+
+  // Error rates
+  ErrorRateRoll = DesiredRateRoll - RateRoll;
+  ErrorRatePitch = DesiredRatePitch - RatePitch;
+  ErrorRateYaw = DesiredRateYaw - RateYaw;
   
   // Compute PID outputs
   pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
   float pidOutputRoll = PIDReturn[0];
-  
+  PrevErrorRateRoll = PIDReturn[1];
+  PrevItermRateRoll = PIDReturn[2];
+
   pid_equation(ErrorRatePitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
   float pidOutputPitch = PIDReturn[0];
-  
+  PrevErrorRatePitch = PIDReturn[1];
+  PrevItermRatePitch = PIDReturn[2];
+
   pid_equation(ErrorRateYaw, PRateYaw, IRateYaw, DRateYaw, PrevErrorRateYaw, PrevItermRateYaw);
   float pidOutputYaw = PIDReturn[0];
+  PrevErrorRateYaw = PIDReturn[1];
+  PrevItermRateYaw = PIDReturn[2];
   
+  //ErrorVelocityVertical=DesiredVelocityVertical; // -- VelocityVerticalKalman TO BE DONE;
+  //pid_equation(ErrorVelocityVertical, PVelocityVertical, IVelocityVertical, DVelocityVertical, PrevErrorVelocityVertical, PrevItermVelocityVertical);
+  //InputThrottle=1500 + PIDReturn[0]; 
+  //PrevErrorVelocityVertical=PIDReturn[1]; 
+  //PrevItermVelocityVertical=PIDReturn[2];
+
+
   // Calculate motor outputs
   // Assuming quadcopter in X configuration
   MotorInput1 = InputThrottle - pidOutputRoll + pidOutputPitch - pidOutputYaw; // Front Left
