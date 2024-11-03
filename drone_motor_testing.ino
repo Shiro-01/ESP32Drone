@@ -54,6 +54,9 @@ struct {
   int8_t joystick_02_y; // from -100 to 100
   uint8_t switch_01; // =1 if switch ON and =0 if OFF
 
+
+jnjlsdañs.´h
+
     // other variable
   uint8_t connect_flag;  // =1 if wire connected, else =0
 
