@@ -22,6 +22,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Servo.h>
+// #include <Adafruit_BMP085_U.h> // Barometer library
 
 
 // RemoteXY configuration
@@ -53,6 +54,8 @@ struct {
   int8_t joystick_02_x; // from -100 to 100
   int8_t joystick_02_y; // from -100 to 100
   uint8_t switch_01; // =1 if switch ON and =0 if OFF
+  uint8_t emergency_landing; // Emergency landing trigger
+
 
     // other variable
   uint8_t connect_flag;  // =1 if wire connected, else =0
@@ -62,6 +65,7 @@ struct {
 
 // Global variables
 Adafruit_MPU6050 mpu;
+// Adafruit_BMP085_Unified bmp; // Barometer
 Servo esc1, esc2, esc3, esc4;
 
 // PID variables
@@ -101,6 +105,7 @@ void reset_pid(void);
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm);
 void calibrateMPU6050();
 void batteryVoltageDetection();
+void emergencyLanding(float currentAltitude); // Declare emergency landing function
 
 
 void setup() 
@@ -119,6 +124,17 @@ void setup()
     }
   }
   //Serial.println("MPU6050 Found!");
+
+/*
+// Initialize BMP180 sensor
+  if (!bmp.begin()) {
+    Serial.println("Failed to find BMP180 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+*/
+   
   
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
@@ -147,6 +163,11 @@ void loop()
   // Read sensor data
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+
+  // Read altitude from the barometer
+  sensors_event_t altitudeEvent;
+  // bmp.getEvent(&altitudeEvent);
+  float currentAltitude = altitudeEvent.altitude;
   
   // Apply calibration offsets
   float accX = a.acceleration.x - accXOffset;
@@ -172,11 +193,17 @@ void loop()
   
   pitch = alpha * (pitch + gyroRateX * dt) + (1 - alpha) * accAngleX;
   roll = alpha * (roll + gyroRateY * dt) + (1 - alpha) * accAngleY;
-  
+
+   // Check for emergency landing
+   if (RemoteXY.switch_01 == 1) { // Assuming switch_01 is used to trigger emergency landing
+    emergencyLanding(altitudeEvent.altitude);
+    return; // Exit loop after initiating landing
+  }
+
   // Read joystick inputs from RemoteXY
   InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1800);
   float SignalYaw = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000);
-  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000, 2000);
+  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000,2000);
   float SignalPitch = map(RemoteXY.joystick_02_x, -100, 100, 1000, 2000);
   
   DesiredRateYaw = 0.15 * (SignalYaw - 1500);   
@@ -211,6 +238,11 @@ void loop()
   //PrevErrorVelocityVertical=PIDReturn[1]; 
   //PrevItermVelocityVertical=PIDReturn[2];
 
+// Gradually adjust throttle based on altitude
+    if (currentAltitude < 5.0) { // Check if close to the ground
+        // Decrease throttle gradually if altitude is decreasing
+        InputThrottle = constrain(InputThrottle - 5, 1000, 1800); // Decrease throttle gradually
+    }
 
   // Calculate motor outputs
   // Assuming quadcopter in X configuration
@@ -244,6 +276,13 @@ void loop()
   delay(10); // 10ms delay for 100Hz update rate
 }
 
+void reset_pid() {
+  // Reset PID variables
+  DesiredRateRoll = 0;
+  DesiredRatePitch = 0;
+  DesiredRateYaw = 0;
+}
+
 // PID function
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm) {
   float dt = 0.01; // Time step (10ms)
@@ -269,11 +308,13 @@ void pid_equation(float Error, float P, float I, float D, float &PrevError, floa
   PrevIterm = Iterm;
 }
 
+/*
 // Reset PID variables
 void reset_pid(void) {
   PrevErrorRateRoll = PrevErrorRatePitch = PrevErrorRateYaw = 0;
   PrevItermRateRoll = PrevItermRatePitch = PrevItermRateYaw = 0;
 }
+*/
 
 // Calibration function
 void calibrateMPU6050() {
@@ -323,4 +364,71 @@ void batteryVoltageDetection() {
   } else {
     digitalWrite(5, HIGH); // Optional: normal operation
   }
+}
+
+// Emergency landing procedure
+void emergencyLanding(float currentAltitude) {
+  Serial.println("Emergency landing initiated...");
+
+    // Start with a safe throttle value
+    float landingThrottle = 1500; // starts at a safe value: 1500 microseconds
+    const float descentRate = 100; // Rate to reduce throttle (in microseconds)
+
+    // Gradually reduce the throttle while maintaining balance
+    while (currentAltitude > 0) {
+        // Read altitude again
+        sensors_event_t altitudeEvent;
+        // bmp.getEvent(&altitudeEvent);
+        currentAltitude = altitudeEvent.altitude; // Update current altitude to determine if the drone has reached the ground.
+
+        // Read sensor data to maintain balance
+        sensors_event_t a, g, temp;
+        mpu.getEvent(&a, &g, &temp);
+
+        // Calculate pitch and roll angles from accelerometer data
+        float accAngleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
+        float accAngleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI;
+
+        // Update PID for pitch and roll based on current angles
+        float ErrorPitch = 0 - accAngleX; // Desired angle is 0
+        float ErrorRoll = 0 - accAngleY;
+
+        // Compute PID for pitch and roll
+        float pidOutputPitch, pidOutputRoll;
+
+        pid_equation(ErrorPitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+        pidOutputPitch = PIDReturn[0];
+
+        pid_equation(ErrorRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+        pidOutputRoll = PIDReturn[0];
+
+        // Adjust throttle based on PID outputs
+        landingThrottle = constrain(landingThrottle - descentRate, 1000, 2000); // Gradually reduce throttle
+        float MotorInput1 = landingThrottle - pidOutputRoll + pidOutputPitch; // Front Left
+        float MotorInput2 = landingThrottle - pidOutputRoll - pidOutputPitch; // Front Right
+        float MotorInput3 = landingThrottle + pidOutputRoll - pidOutputPitch; // Rear Right
+        float MotorInput4 = landingThrottle + pidOutputRoll + pidOutputPitch; // Rear Left
+
+        // Altitude is continuously monitored until the drone reaches the ground.
+        MotorInput1 = constrain(MotorInput1, 1000, 2000);
+        MotorInput2 = constrain(MotorInput2, 1000, 2000);
+        MotorInput3 = constrain(MotorInput3, 1000, 2000);
+        MotorInput4 = constrain(MotorInput4, 1000, 2000);
+
+        // Write motor outputs
+        esc1.writeMicroseconds(MotorInput1); // PWM signal to the ESCs with calculated throttle value for each motor
+        esc2.writeMicroseconds(MotorInput2);
+        esc3.writeMicroseconds(MotorInput3);
+        esc4.writeMicroseconds(MotorInput4);
+
+        delay(100); // Short delay before checking again
+    }
+
+    Serial.println("Landing complete.");
+    // Turn off the motors completely
+    esc1.writeMicroseconds(1000);
+    esc2.writeMicroseconds(1000);
+    esc3.writeMicroseconds(1000);
+    esc4.writeMicroseconds(1000);
+
 }
