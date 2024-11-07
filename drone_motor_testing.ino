@@ -22,6 +22,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Servo.h>
+// #include <Adafruit_BMP085_U.h> // Barometer library
 
 
 // RemoteXY configuration
@@ -53,6 +54,8 @@ struct {
   int8_t joystick_02_x; // from -100 to 100
   int8_t joystick_02_y; // from -100 to 100
   uint8_t switch_01; // =1 if switch ON and =0 if OFF
+  uint8_t emergency_landing; // Emergency landing trigger
+
 
     // other variable
   uint8_t connect_flag;  // =1 if wire connected, else =0
@@ -62,6 +65,7 @@ struct {
 
 // Global variables
 Adafruit_MPU6050 mpu;
+// Adafruit_BMP085_Unified bmp; // Barometer
 Servo esc1, esc2, esc3, esc4;
 
 // PID variables
@@ -101,6 +105,7 @@ void reset_pid(void);
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm);
 void calibrateMPU6050();
 void batteryVoltageDetection();
+void emergencyLanding(); // Declare emergency landing function
 
 
 void setup() 
@@ -119,6 +124,17 @@ void setup()
     }
   }
   //Serial.println("MPU6050 Found!");
+
+/*
+// Initialize BMP180 sensor
+  if (!bmp.begin()) {
+    Serial.println("Failed to find BMP180 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+*/
+   
   
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
@@ -147,6 +163,10 @@ void loop()
   // Read sensor data
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+
+  // Read altitude from the barometer
+  sensors_event_t altitudeEvent;
+  // bmp.getEvent(&altitudeEvent);
   
   // Apply calibration offsets
   float accX = a.acceleration.x - accXOffset;
@@ -172,11 +192,12 @@ void loop()
   
   pitch = alpha * (pitch + gyroRateX * dt) + (1 - alpha) * accAngleX;
   roll = alpha * (roll + gyroRateY * dt) + (1 - alpha) * accAngleY;
-  
+
+
   // Read joystick inputs from RemoteXY
   InputThrottle = map(max(0, RemoteXY.joystick_01_x), 0, 100, 1000, 1800);
   float SignalYaw = map(RemoteXY.joystick_01_y, -100, 100, 1000, 2000);
-  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000, 2000);
+  float SignalRoll = map(RemoteXY.joystick_02_y, -100, 100, 1000,2000);
   float SignalPitch = map(RemoteXY.joystick_02_x, -100, 100, 1000, 2000);
   
   DesiredRateYaw = 0.15 * (SignalYaw - 1500);   
@@ -211,6 +232,12 @@ void loop()
   //PrevErrorVelocityVertical=PIDReturn[1]; 
   //PrevItermVelocityVertical=PIDReturn[2];
 
+/* Gradually adjust throttle based on altitude
+    if (currentAltitude < 5.0) { // Check if close to the ground
+        // Decrease throttle gradually if altitude is decreasing
+        InputThrottle = constrain(InputThrottle - 5, 1000, 1800); // Decrease throttle gradually
+    }
+*/
 
   // Calculate motor outputs
   // Assuming quadcopter in X configuration
@@ -244,6 +271,13 @@ void loop()
   delay(10); // 10ms delay for 100Hz update rate
 }
 
+void reset_pid() {
+  // Reset PID variables
+  DesiredRateRoll = 0;
+  DesiredRatePitch = 0;
+  DesiredRateYaw = 0;
+}
+
 // PID function
 void pid_equation(float Error, float P, float I, float D, float &PrevError, float &PrevIterm) {
   float dt = 0.01; // Time step (10ms)
@@ -269,11 +303,13 @@ void pid_equation(float Error, float P, float I, float D, float &PrevError, floa
   PrevIterm = Iterm;
 }
 
+/*
 // Reset PID variables
 void reset_pid(void) {
   PrevErrorRateRoll = PrevErrorRatePitch = PrevErrorRateYaw = 0;
   PrevItermRateRoll = PrevItermRatePitch = PrevItermRateYaw = 0;
 }
+*/
 
 // Calibration function
 void calibrateMPU6050() {
@@ -323,4 +359,98 @@ void batteryVoltageDetection() {
   } else {
     digitalWrite(5, HIGH); // Optional: normal operation
   }
+}
+
+// Emergency landing procedure
+void emergencyLanding() {
+  Serial.println("Emergency landing initiated...");
+
+    // Initial throttle for descent
+    float landingThrottle = 1100;          // Initial throttle value for motors during descent
+    const float targetDescentRate = -1.0;  // Target descent rate in m/s^2 for steady and slow descent
+    const float descentRateP = 0.5;        // PID proportional term for descent rate
+    const float descentRateI = 0.1;        // PID integral term for descent rate
+    const float descentRateD = 0.05;       // PID derivative term for descent rate
+
+    float prevDescentError = 0;
+    float descentIntegral = 0;
+
+    while (true) {
+        // Read sensor data to maintain balance
+        sensors_event_t a, g, temp;
+        mpu.getEvent(&a, &g, &temp);  //reads data from the accelerometer and gyroscope to keep track of orientation.
+
+        // Calculate descent rate from accelerometer Z-axis
+        float currentDescentRate = a.acceleration.z; // Get z-axis acceleration in m/s^2
+        
+        // Calculate descent error (target descent rate - actual descent rate)
+        float descentError = targetDescentRate - currentDescentRate; // how far the drone’s current behavior deviates from the goal.
+
+        // PID calculations for descent control
+        descentIntegral += descentError * dt;
+        float descentDerivative = (descentError - prevDescentError) / dt;
+        float pidDescentOutput = descentRateP * descentError + descentRateI * descentIntegral + descentRateD * descentDerivative;
+
+        // Adjust throttle based on PID output to control descent rate
+        landingThrottle = constrain(landingThrottle + pidDescentOutput, 1000, 2000); 
+
+        // Update previous error for next loop
+        prevDescentError = descentError;
+
+        // Calculate pitch and roll angles from accelerometer data
+        float accAngleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI; // pitch angle, which is the tilt around the X-axis.
+        float accAngleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI; // roll angle, which is the tilt around the Y-axis.
+
+        // Update PID for pitch and roll based on current angles
+        float ErrorPitch = 0 - accAngleX; // Desired angle is 0 so the errors indicate how tilted the drone is.
+        float ErrorRoll = 0 - accAngleY;
+
+        // Update PID for pitch and roll
+        float pidOutputPitch, pidOutputRoll;
+
+        pid_equation(ErrorPitch, PRatePitch, IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+        pidOutputPitch = PIDReturn[0]; //compute the PID output based on the current error and previous states, which will adjust the motor speeds to correct any tilt.
+        PrevErrorRatePitch = PIDReturn[1];
+        PrevItermRatePitch = PIDReturn[2];
+        
+        pid_equation(ErrorRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+        pidOutputRoll = PIDReturn[0]; //holds the calculated adjustments for pitch and roll
+        PrevErrorRateRoll = PIDReturn[1];
+        PrevItermRateRoll = PIDReturn[2];
+
+        // Calculate motor inputs for stability and controlled descent
+        float MotorInput1 = landingThrottle - pidOutputRoll + pidOutputPitch; // Front Left
+        float MotorInput2 = landingThrottle - pidOutputRoll - pidOutputPitch; // Front Right
+        float MotorInput3 = landingThrottle + pidOutputRoll - pidOutputPitch; // Rear Right
+        float MotorInput4 = landingThrottle + pidOutputRoll + pidOutputPitch; // Rear Left
+
+        // Adjust each motor’s throttle to account for roll and pitch corrections.
+        MotorInput1 = constrain(MotorInput1, 1000, 2000); // Motor inputs stay within limits
+        MotorInput2 = constrain(MotorInput2, 1000, 2000);
+        MotorInput3 = constrain(MotorInput3, 1000, 2000);
+        MotorInput4 = constrain(MotorInput4, 1000, 2000);
+
+        // Write motor outputs
+        esc1.writeMicroseconds(MotorInput1); // PWM signal to ESCs with calculated throttle value for each motor
+        esc2.writeMicroseconds(MotorInput2);
+        esc3.writeMicroseconds(MotorInput3);
+        esc4.writeMicroseconds(MotorInput4);
+
+    // Landing Detection (close to ground, low descent rate)
+    if (currentDescentRate > -0.1 && currentDescentRate < 0.1) { // Threshold for minimal descent speed
+      break; // If descent rate close to zero, the loop breaks, signaling that the drone has landed.
+    }
+
+    // Gradually decrease throttle for smooth landing
+    if (landingThrottle > 1000) {
+      landingThrottle -= 0.5; // Decrease throttle slowly
+    }
+    delay(10); // Loop rate at 100Hz
+    }
+
+    // Turn off motors after landing
+  esc1.writeMicroseconds(1000);
+  esc2.writeMicroseconds(1000);
+  esc3.writeMicroseconds(1000);
+  esc4.writeMicroseconds(1000);
 }
