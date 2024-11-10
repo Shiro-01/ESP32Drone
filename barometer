@@ -1,0 +1,79 @@
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+
+// Global variables
+// using I2C
+Adafruit_BMP280 bmp;
+
+// Altitude and velocity tracking variables
+float previousAltitude = 0.0;
+float currentAltitude = 0.0;
+float verticalVelocity = 0.0;
+const float seaLevelPressure = 1030.25; // Standard sea level pressure in hPa
+
+// Time tracking for velocity calculation
+unsigned long previousAltitudeTime = 0;
+unsigned long currentAltitudeTime = 0;
+
+// Function prototypes
+
+void setup() {
+
+  // Initialize serial communication
+  Serial.begin(115200);  
+  
+  // Initialize BMP180 sensor
+    if (!bmp.begin()) {
+      Serial.println("Failed to find BMP280 chip");
+      while (1);
+    }
+
+    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,   /* Operating Mode */
+                  Adafruit_BMP280::SAMPLING_X2,     /* Temperature Oversampling */
+                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure Oversampling */
+                  Adafruit_BMP280::FILTER_X16,      /* Filtering */
+                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time */
+
+}
+
+void loop() {
+  
+  // Read altitude from the barometer
+  currentAltitude = bmp.readAltitude(seaLevelPressure); // Get altitude in meters
+  currentAltitudeTime = millis(); // Record the current time
+  
+  // Calculate vertical velocity (rate of altitude change) if there's a previous reading
+  if (previousAltitudeTime != 0) {
+    float dt = (currentAltitudeTime - previousAltitudeTime) / 1000.0; // Convert ms to seconds
+    verticalVelocity = (currentAltitude - previousAltitude) / dt; // Velocity in meters per second
+  }
+
+  // Update previous altitude and time for the next calculation
+  previousAltitude = currentAltitude;
+  previousAltitudeTime = currentAltitudeTime;
+
+  // Debugging: print altitude and vertical velocity
+  Serial.print("Altitude: ");
+  Serial.print(currentAltitude);
+  Serial.print(" m, Vertical Velocity: ");
+  Serial.print(verticalVelocity);
+  Serial.println(" m/s");
+
+  delay(1500); // Adjust delay as needed for stable reading
+
+  // sensors_event_t altitudeEvent;
+  // bmp.getEvent(&altitudeEvent);
+}
+
+
+
+
+
+
+
+
+
+
+
