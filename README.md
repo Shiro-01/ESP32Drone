@@ -104,7 +104,7 @@ These parameters can be tuned dynamically from the RemoteXY GUI to optimize flig
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is free to use but only by giving the credits if u used it!
 
 ---
 
